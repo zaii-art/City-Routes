@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121a2b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>City Routes</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="City Routes">
+<style>
+:root{--bg:#0b111d;--panel:#121a2b;--panel2:#1a2540;--line:#27334f;--txt:#eaf0fb;--mute:#8e9cb9;
+--blue:#3d7bff;--go:#2fd27a;--bad:#ff5c6c;--seen:#ffc247;--route:#26e0ff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none;background:var(--bg);color:var(--txt);
+font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+#app{height:100dvh;display:flex;flex-direction:column}
+.appbar{display:flex;align-items:center;gap:12px;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;background:var(--panel);border-bottom:1px solid var(--line)}
+.logo{width:34px;height:34px;border-radius:11px;background:var(--blue);display:grid;place-items:center}
+.appbar h1{margin:0;font-size:1.05rem;font-weight:700;letter-spacing:-.01em}
+.appbar p{margin:1px 0 0;font-size:.74rem;color:var(--mute)}
+.main{flex:1;min-height:0;display:flex;flex-direction:column}
+
+/* ---------- map stage ---------- */
+#stage{--k:1;position:relative;flex:1;min-height:0;overflow:hidden;touch-action:none;cursor:grab;background:#0e1524}
+#stage:active{cursor:grabbing}
+#world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform;background:#101826}
+#map{display:block;width:100%;height:100%;user-select:none;-webkit-user-drag:none;filter:brightness(.88) saturate(.92)}
+#svg{position:absolute;left:0;top:0;width:100%;height:100%}
+.edge{stroke:#ff5a6a;stroke-width:calc(2px*var(--k));opacity:.5}
+.node{fill:#3d7bff;stroke:#fff;stroke-width:calc(1.5px*var(--k));pointer-events:none;transform-box:fill-box;transform-origin:center;transition:fill .3s}
+.node.seen{fill:var(--seen);animation:pop .5s}
+.node.start{fill:var(--go)}.node.goal{fill:var(--bad)}
+.node.start,.node.goal{animation:pulse 1.4s infinite}
+.hit{fill:transparent;cursor:pointer}
+.lbl{font-size:calc(11px*var(--k));font-weight:700;fill:#fff;paint-order:stroke;stroke:#0a1020;stroke-width:calc(3px*var(--k));pointer-events:none;opacity:0;transition:opacity .2s}
+.labels .lbl,.lbl.pin{opacity:1}
+.route-casing{fill:none;stroke:#07101f;stroke-width:calc(9px*var(--k));stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+.route{fill:none;stroke:var(--route);stroke-width:calc(5px*var(--k));stroke-linecap:round;stroke-linejoin:round}
+.rider{fill:#ffe45c;stroke:#07101f;stroke-width:calc(2.5px*var(--k));filter:drop-shadow(0 0 6px #ffe45c)}
+@keyframes pop{0%{transform:scale(.3)}60%{transform:scale(2)}100%{transform:scale(1)}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.45)}}
+
+.toast{position:absolute;left:12px;top:12px;max-width:calc(100% - 84px);padding:9px 14px;border-radius:999px;background:rgba(18,26,43,.92);
+border:1px solid var(--line);font-size:.84rem;font-weight:600;backdrop-filter:blur(8px);pointer-events:none}
+.toast:empty{display:none}.toast.err{border-color:var(--bad);color:#ffb3bb}
+.zoom{position:absolute;right:12px;top:12px;display:grid;gap:8px}
+.zoom button{width:44px;height:44px;border-radius:14px;border:1px solid var(--line);background:rgba(18,26,43,.92);display:grid;place-items:center;backdrop-filter:blur(8px)}
+.zoom button:active{background:var(--panel2)}
+
+/* ---------- bottom sheet / side panel ---------- */
+.sheet{background:var(--panel);border-top:1px solid var(--line);border-radius:22px 22px 0 0;max-height:48dvh;overflow-y:auto;
+padding:0 16px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -10px 30px rgba(0,0,0,.35)}
+.grab{display:block;width:100%;height:26px;border:0;background:none;padding:0}
+.grab i{display:block;width:40px;height:4px;border-radius:4px;background:var(--line);margin:11px auto 0}
+.route-row{display:grid;grid-template-columns:1fr 44px;gap:8px;align-items:center}
+.fields{display:grid;gap:8px}
+.field{display:flex;align-items:center;gap:10px;padding:0 12px;height:48px;background:var(--panel2);border:1.5px solid var(--line);border-radius:14px;transition:border-color .2s}
+.field.active{border-color:var(--blue)}
+.field .dot{width:11px;height:11px;border-radius:50%;flex:none}
+.dot.s{background:var(--go);box-shadow:0 0 0 3px rgba(47,210,122,.25)}
+.dot.g{background:var(--bad);box-shadow:0 0 0 3px rgba(255,92,108,.25)}
+.field span{width:34px;font-size:.76rem;color:var(--mute)}
+.field select{flex:1;min-width:0;height:100%;border:0;background:transparent;font-weight:700;font-size:1rem;appearance:none;-webkit-appearance:none}
+.field select option{background:var(--panel2)}
+.swap{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--panel2);display:grid;place-items:center;grid-row:1/3;grid-column:2}
+.swap:active{transform:rotate(180deg);transition:transform .3s}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;margin-top:12px;background:var(--bg);border-radius:14px}
+.seg button{border:0;background:none;border-radius:10px;height:38px;font-weight:600;color:var(--mute)}
+.seg button.on{background:var(--blue);color:#fff}
+.hint{margin:8px 2px 0;font-size:.78rem;color:var(--mute);min-height:1.2em}
+.actions{display:flex;gap:8px;margin-top:12px}
+.actions button{height:50px;border-radius:15px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;border:0}
+#go{flex:1;background:var(--go);color:#04210f}
+#go.stop{background:var(--bad);color:#2a0409}
+#go:active{transform:scale(.97)}
+#restart{padding:0 18px;background:var(--panel2);border:1px solid var(--line);animation:in .25s}
+#restart[hidden]{display:none}
+@keyframes in{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.stats div{text-align:center}.stats b{display:block;font-size:1.35rem;font-variant-numeric:tabular-nums}
+.stats span{font-size:.72rem;color:var(--mute)}
+.path{display:flex;gap:6px;overflow-x:auto;margin-top:10px;padding-bottom:2px;scrollbar-width:none}
+.path:empty{display:none}
+.path i{flex:none;font-style:normal;font-size:.78rem;font-weight:700;padding:4px 9px;border-radius:8px;background:var(--panel2)}
+.path i:first-child{color:var(--go)}.path i:last-child{color:var(--bad)}
+.more{display:grid;grid-template-rows:0fr;transition:grid-template-rows .25s}
+.sheet.open .more{grid-template-rows:1fr}
+.more>div{overflow:hidden;min-height:0}
+.speed{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:.8rem;color:var(--mute)}
+.speed input{flex:1;accent-color:var(--blue)}
+.cmp{margin-top:14px;display:grid;gap:8px;font-size:.84rem}
+.crow{display:grid;grid-template-columns:62px 1fr 64px 76px;gap:8px;align-items:center;font-variant-numeric:tabular-nums}
+.crow.h{color:var(--mute);font-size:.72rem}
+.crow .bar{height:8px;border-radius:8px;background:var(--bg);overflow:hidden}
+.crow .bar i{display:block;height:100%;background:var(--blue);border-radius:8px}
+.crow.best .bar i{background:var(--go)}.crow.best b{color:var(--go)}
+.empty{margin:0;color:var(--mute);font-size:.8rem}
+
+@media (min-width:900px) and (orientation:landscape){
+  .main{flex-direction:row-reverse}
+  .sheet{width:400px;max-height:none;height:100%;border-radius:0;border-top:0;border-right:1px solid var(--line);box-shadow:none;padding-top:16px}
+  .grab{display:none}.more{grid-template-rows:1fr}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="currentColor"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4v16M7 20l-3-3M7 20l3-3M17 20V4M17 4l-3 3M17 4l3 3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+</defs></svg>
+
+<div id="app">
+  <header class="appbar">
+    <div class="logo"><svg class="i" style="stroke:#fff"><use href="#i-pin"/></svg></div>
+    <div><h1>City Routes</h1><p id="sub">Loading map…</p></div>
+  </header>
+
+  <div class="main">
+    <div id="stage">
+      <div id="world"><img id="map" src="/map" alt="City map" draggable="false"><svg id="svg"></svg></div>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      <div class="zoom" id="zoom">
+        <button id="zin" aria-label="Zoom in"><svg class="i"><use href="#i-plus"/></svg></button>
+        <button id="zout" aria-label="Zoom out"><svg class="i"><use href="#i-minus"/></svg></button>
+        <button id="zfit" aria-label="Fit map to screen"><svg class="i"><use href="#i-fit"/></svg></button>
+      </div>
+    </div>
+
+    <section class="sheet" id="sheet">
+      <button class="grab" id="grab" aria-label="Show or hide details" aria-expanded="false"><i></i></button>
+
+      <div class="route-row">
+        <div class="fields">
+          <label class="field active" id="fstart"><i class="dot s"></i><span>From</span><select id="start"></select></label>
+          <label class="field" id="fgoal"><i class="dot g"></i><span>To</span><select id="goal"></select></label>
+        </div>
+        <button class="swap" id="swap" aria-label="Swap start and goal"><svg class="i"><use href="#i-swap"/></svg></button>
+      </div>
+
+      <div class="seg" id="algos">
+        <button data-a="ucs">UCS</button><button data-a="greedy">Greedy</button><button data-a="astar" class="on">A*</button>
+      </div>
+      <p class="hint" id="hint"></p>
+
+      <div class="actions">
+        <button id="go"></button>
+        <button id="restart" hidden><svg class="i"><use href="#i-redo"/></svg>Restart</button>
+      </div>
+
+      <div class="stats">
+        <div><b id="sCost">–</b><span>Distance (px)</span></div>
+        <div><b id="sExp">–</b><span>Nodes checked</span></div>
+        <div><b id="sHops">–</b><span>Stops on route</span></div>
+      </div>
+      <div class="path" id="pathline"></div>
+
+      <div class="more"><div>
+        <div class="speed">Slow<input type="range" id="speed" min="1" max="10" value="5" aria-label="Animation speed">Fast</div>
+        <div class="cmp" id="cmp"></div>
+      </div></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+const NAMES = {ucs: "UCS", greedy: "Greedy", astar: "A*"};
+const HINTS = {
+  ucs: "Always finds the shortest route, but checks the most nodes.",
+  greedy: "Heads straight for the goal. Fast, but not always the shortest.",
+  astar: "Finds the shortest route while checking fewer nodes."
+};
+const DEF = {start: "V1", goal: "V27"};
+const stage = $("stage"), world = $("world");
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let G, V = {}, W = 1100, H = 1200, algo = "astar", runId = 0, running = false, results = {}, tapTarget = "start", rider = null;
+const N = {}, L = {}, HIT = {};
+const view = {x: 0, y: 0, s: 1};
+let fitS = 1, minS = .2, maxS = 3, atFit = true, lastK = 0, animId = 0, toastTimer = 0;
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function make(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent.appendChild(e);
+  return e;
+}
+function toast(msg, o = {}) {
+  const t = $("toast");
+  clearTimeout(toastTimer);
+  t.textContent = msg;
+  t.classList.toggle("err", !!o.err);
+  if (msg && !o.sticky) toastTimer = setTimeout(() => t.textContent = "", 3500);
+}
+
+/* ------------------------------ setup ------------------------------ */
+async function init() {
+  setGo(); $("hint").textContent = HINTS[algo];
+  try { G = await (await fetch("/api/graph")).json(); }
+  catch (e) { toast("Can't reach the server. Is app.py running?", {err: true, sticky: true}); return; }
+  G.vertices.forEach(v => V[v.id] = v);
+  const img = $("map");
+  try { await img.decode(); } catch (e) {}
+  W = img.naturalWidth || Math.max(...G.vertices.map(v => v.x)) + 120;
+  H = img.naturalHeight || Math.max(...G.vertices.map(v => v.y)) + 120;
+  world.style.width = W + "px"; world.style.height = H + "px";
+  $("svg").setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  const eg = make("g", {}, $("svg"));
+  G.edges.forEach(([a, b]) => make("line", {class: "edge", x1: V[a].x, y1: V[a].y, x2: V[b].x, y2: V[b].y}, eg));
+  make("g", {id: "layer"}, $("svg"));
+  const ng = make("g", {}, $("svg"));
+  G.vertices.forEach(v => {
+    N[v.id] = make("circle", {class: "node", cx: v.x, cy: v.y}, ng);
+    L[v.id] = make("text", {class: "lbl"}, ng); L[v.id].textContent = v.id;
+    HIT[v.id] = make("circle", {class: "hit", cx: v.x, cy: v.y, "data-id": v.id}, ng);
+    ["start", "goal"].forEach(s => {
+      const o = document.createElement("option"); o.value = o.textContent = v.id; $(s).appendChild(o);
+    });
+  });
+  $("start").value = DEF.start; $("goal").value = DEF.goal;
+  $("sub").textContent = `${G.vertices.length} stops, ${G.edges.length} roads`;
+  mark(); fitView(false);
+  setTimeout(() => { if (atFit) fitView(false); }, 300);
+  addEventListener("orientationchange", () => setTimeout(() => { if (atFit) fitView(false); }, 300));
+  new ResizeObserver(() => { if (atFit) fitView(false); else { clampView(); applyView(); } }).observe(stage);
+}
+
+/* ------------------------- pan / zoom camera ------------------------ */
+function sizeThings(k) {
+  stage.style.setProperty("--k", k);
+  for (const id in N) {
+    N[id].setAttribute("r", 5 * k); HIT[id].setAttribute("r", 16 * k);
+    L[id].setAttribute("x", V[id].x + 10 * k); L[id].setAttribute("y", V[id].y - 9 * k);
+  }
+  if (rider) rider.setAttribute("r", 7 * k);
+}
+function applyView() {
+  world.style.transform = `translate(${view.x}px,${view.y}px) scale(${view.s})`;
+  const k = 1 / view.s;
+  if (Math.abs(k - lastK) > 1e-4) { lastK = k; sizeThings(k); }
+  stage.classList.toggle("labels", view.s >= .5);
+}
+function clampView() {
+  const w = stage.clientWidth, h = stage.clientHeight, m = 60;
+  view.x = Math.min(w - m, Math.max(m - W * view.s, view.x));
+  view.y = Math.min(h - m, Math.max(m - H * view.s, view.y));
+}
+function goTo(t, animate = true) {
+  cancelAnimationFrame(animId);
+  if (!animate || reduce) { Object.assign(view, t); applyView(); return; }
+  const a = {...view}, t0 = performance.now(), D = 550;
+  (function step(now) {
+    const p = Math.min((now - t0) / D, 1), e = 1 - Math.pow(1 - p, 3);
+    view.x = a.x + (t.x - a.x) * e; view.y = a.y + (t.y - a.y) * e; view.s = a.s + (t.s - a.s) * e;
+    applyView();
+    if (p < 1) animId = requestAnimationFrame(step);
+  })(t0);
+}
+function fitView(animate) {
+  const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return;
+  const s = Math.min((w - 8) / W, (h - 8) / H);
+  fitS = s; minS = s * .6; maxS = Math.max(3, s * 8);
+  goTo({s, x: (w - W * s) / 2, y: (h - H * s) / 2}, animate);
+  atFit = true;
+}
+function zoomAt(cx, cy, f) {
+  const r = stage.getBoundingClientRect(), px = cx - r.left, py = cy - r.top;
+  const ns = Math.min(maxS, Math.max(minS, view.s * f)), q = ns / view.s;
+  view.x = px - (px - view.x) * q; view.y = py - (py - view.y) * q; view.s = ns;
+}
+function zoomBtn(f) {
+  const w = stage.clientWidth / 2, h = stage.clientHeight / 2;
+  const ns = Math.min(maxS, Math.max(minS, view.s * f)), q = ns / view.s;
+  atFit = false; goTo({s: ns, x: w - (w - view.x) * q, y: h - (h - view.y) * q});
+}
+function focusIds(ids) {
+  const xs = ids.map(i => V[i].x), ys = ids.map(i => V[i].y), pad = 90;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const bw = Math.max(x1 - x0 + pad * 2, 260), bh = Math.max(y1 - y0 + pad * 2, 260);
+  const w = stage.clientWidth, h = stage.clientHeight;
+  const s = Math.min(1.5, maxS, Math.max(minS, Math.min(w / bw, h / bh)));
+  atFit = false;
+  goTo({s, x: w / 2 - (x0 + x1) / 2 * s, y: h / 2 - (y0 + y1) / 2 * s});
+}
+
+const pts = new Map(); let moved = false, downEl = null, startPt = null, pinch = null;
+$("zoom").addEventListener("pointerdown", e => e.stopPropagation());
+stage.addEventListener("pointerdown", e => {
+  if (e.target.closest("#zoom")) return;
+  cancelAnimationFrame(animId);
+  stage.setPointerCapture(e.pointerId);
+  pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  if (pts.size === 1) { downEl = e.target; moved = false; startPt = {x: e.clientX, y: e.clientY}; }
+  if (pts.size === 2) { moved = true; const [a, b] = [...pts.values()]; pinch = {d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2}; }
+});
+stage.addEventListener("pointermove", e => {
+  const p = pts.get(e.pointerId); if (!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  p.x = e.clientX; p.y = e.clientY;
+  if (pts.size === 1) {
+    if (!moved && Math.hypot(e.clientX - startPt.x, e.clientY - startPt.y) > 6) moved = true;
+    if (moved) { view.x += dx; view.y += dy; }
+  } else if (pts.size === 2 && pinch) {
+    const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+    view.x += cx - pinch.cx; view.y += cy - pinch.cy;
+    zoomAt(cx, cy, d / pinch.d);
+    pinch = {d, cx, cy};
+  } else return;
+  atFit = false; clampView(); applyView();
+});
+function endPtr(e) {
+  if (!pts.has(e.pointerId)) return;
+  if (e.type === "pointerup" && pts.size === 1 && !moved && downEl && downEl.dataset && downEl.dataset.id) pick(downEl.dataset.id);
+  pts.delete(e.pointerId); pinch = null;
+}
+stage.addEventListener("pointerup", endPtr);
+stage.addEventListener("pointercancel", endPtr);
+stage.addEventListener("wheel", e => {
+  e.preventDefault(); atFit = false;
+  zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 1 / 1.15); clampView(); applyView();
+}, {passive: false});
+$("zin").onclick = () => zoomBtn(1.5);
+$("zout").onclick = () => zoomBtn(1 / 1.5);
+$("zfit").onclick = () => fitView(true);
+
+/* ----------------------------- selection ---------------------------- */
+function setTap(t) {
+  tapTarget = t;
+  $("fstart").classList.toggle("active", t === "start");
+  $("fgoal").classList.toggle("active", t === "goal");
+}
+function mark() {
+  for (const id in N) { N[id].classList.remove("start", "goal"); L[id].classList.remove("pin"); }
+  const s = $("start").value, g = $("goal").value;
+  N[s].classList.add("start"); N[g].classList.add("goal"); L[s].classList.add("pin"); L[g].classList.add("pin");
+}
+function pick(id) {                       // tap a node: fills the highlighted field, then moves to the other
+  $(tapTarget).value = id;
+  setTap(tapTarget === "start" ? "goal" : "start");
+  onSelection();
+}
+function onSelection() {                  // route changed: wipe the old route so nothing stale stays on the map
+  stopAndClear(); results = {}; renderResults(); resetStats(); mark(); toast(""); updateRestart();
+}
+$("start").onchange = $("goal").onchange = onSelection;
+$("start").onfocus = () => setTap("start");
+$("goal").onfocus = () => setTap("goal");
+$("swap").onclick = () => {
+  const s = $("start").value; $("start").value = $("goal").value; $("goal").value = s; onSelection();
+};
+
+/* ------------------------------ clearing ---------------------------- */
+function stopAndClear() {
+  runId++; running = false; rider = null;
+  const layer = $("layer"); if (layer) layer.innerHTML = "";
+  for (const id in N) N[id].classList.remove("seen");
+  setGo();
+}
+function resetStats() {
+  ["sCost", "sExp", "sHops"].forEach(i => $(i).textContent = "–");
+  $("pathline").innerHTML = "";
+}
+function updateRestart() {                // shows once there's something to clear or the route differs from the default
+  const dirty = running || Object.keys(results).length ||
+    $("start").value !== DEF.start || $("goal").value !== DEF.goal || $("layer").childElementCount;
+  $("restart").hidden = !dirty;
+}
+function restart() {
+  stopAndClear(); results = {}; renderResults(); resetStats();
+  $("start").value = DEF.start; $("goal").value = DEF.goal;
+  setTap("start"); mark(); fitView(true); updateRestart();
+  toast("Ready. Tap two stops on the map.");
+}
+$("restart").onclick = restart;
+
+function setGo() {
+  const b = $("go");
+  b.classList.toggle("stop", running);
+  b.innerHTML = running ? '<svg class="i"><use href="#i-stop"/></svg>Stop' : '<svg class="i"><use href="#i-play"/></svg>Find route';
+}
+
+/* ------------------------------- search ----------------------------- */
+async function run() {
+  if (running) { stopAndClear(); toast("Stopped."); updateRestart(); return; }
+  stopAndClear();
+  const my = runId, s = $("start").value, g = $("goal").value, speed = +$("speed").value;
+  if (s === g) { toast("Pick two different stops."); return; }
+  running = true; setGo(); updateRestart(); toast("Searching…", {sticky: true});
+
+  let r;
+  try {
+    const res = await fetch(`/api/route?start=${s}&goal=${g}&algo=${algo}`);
+    if (!res.ok) throw 0;
+    r = await res.json();
+  } catch (e) {
+    if (my === runId) { running = false; setGo(); toast("Couldn't reach the server.", {err: true}); }
+    return;
+  }
+  if (my !== runId) return;
+  if (!r.found) { running = false; setGo(); toast("No route between those stops."); return; }
+
+  focusIds([...r.explored, ...r.path]);
+  for (let i = 0; i < r.explored.length; i++) {          // 1) nodes light up in the order they're expanded
+    if (my !== runId) return;
+    const n = N[r.explored[i]]; n.classList.remove("seen"); void n.getBoundingClientRect(); n.classList.add("seen");
+    toast(`Checking nodes… ${i + 1} / ${r.explored.length}`, {sticky: true});
+    await sleep(260 / speed);
+  }
+  if (my !== runId) return;
+
+  const d = r.path.map((id, i) => (i ? "L" : "M") + V[id].x + " " + V[id].y).join(" ");   // 2) draw route + rider
+  const layer = $("layer");
+  const casing = make("path", {class: "route-casing", d}, layer);
+  const route = make("path", {class: "route", d}, layer);
+  const len = route.getTotalLength(), paths = [casing, route];
+  paths.forEach(p => { p.style.strokeDasharray = len; p.style.strokeDashoffset = len; });
+  rider = make("circle", {class: "rider", r: 7 * lastK}, layer);
+  const dur = Math.max(1500, len * 6 / speed), t0 = performance.now();
+
+  await new Promise(done => {
+    function frame(now) {
+      if (my !== runId) return done();
+      const p = Math.min((now - t0) / dur, 1);
+      const e = p < .5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      const pt = route.getPointAtLength(e * len);
+      rider.setAttribute("cx", pt.x); rider.setAttribute("cy", pt.y);
+      paths.forEach(q => q.style.strokeDashoffset = len * (1 - e));
+      p < 1 ? requestAnimationFrame(frame) : done();
+    }
+    requestAnimationFrame(frame);
+  });
+  if (my !== runId) return;
+
+  $("sCost").textContent = r.cost; $("sExp").textContent = r.expanded; $("sHops").textContent = r.path.length;
+  $("pathline").innerHTML = r.path.map(id => `<i>${id}</i>`).join("");
+  results[algo] = r; renderResults();
+  running = false; setGo(); updateRestart();
+  toast(`${NAMES[algo]} found the route.`);
+}
+$("go").onclick = run;
+
+function renderResults() {
+  const keys = ["ucs", "greedy", "astar"].filter(a => results[a]);
+  if (!keys.length) { $("cmp").innerHTML = '<p class="empty">Run a second algorithm on this route to compare them.</p>'; return; }
+  const costs = keys.map(a => results[a].cost), min = Math.min(...costs), max = Math.max(...costs);
+  $("cmp").innerHTML = '<div class="crow h"><span>Algorithm</span><span>Distance</span><span></span><span>Nodes</span></div>' +
+    keys.map(a => {
+      const r = results[a], best = keys.length > 1 && r.cost === min;
+      return `<div class="crow ${best ? "best" : ""}"><b>${NAMES[a]}</b><span class="bar"><i style="width:${r.cost / max * 100}%"></i></span><span>${r.cost}</span><span>${r.expanded}</span></div>`;
+    }).join("");
+}
+
+$("algos").onclick = e => {
+  const a = e.target.dataset && e.target.dataset.a; if (!a) return;
+  algo = a; $("hint").textContent = HINTS[a];
+  document.querySelectorAll("#algos button").forEach(b => b.classList.toggle("on", b === e.target));
+};
+$("grab").onclick = () => {
+  const open = $("sheet").classList.toggle("open"); $("grab").setAttribute("aria-expanded", open);
+};
+renderResults();
+init();
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
