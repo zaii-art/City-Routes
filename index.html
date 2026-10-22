@@ -134,7 +134,7 @@ padding:0 16px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -10px 30px 
 
   <div class="main">
     <div id="stage">
-      <div id="world"><img id="map" src="/map" alt="City map" draggable="false"><svg id="svg"></svg></div>
+      <div id="world"><img id="map" src="city_map.jpg" alt="City map" draggable="false"><svg id="svg"></svg></div>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       <div class="zoom" id="zoom">
         <button id="zin" aria-label="Zoom in"><svg class="i"><use href="#i-plus"/></svg></button>
@@ -180,6 +180,53 @@ padding:0 16px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -10px 30px 
 </div>
 
 <script>
+const COORDS = {"V1": [24, 498], "V2": [82, 591], "V3": [173, 615], "V4": [257, 611], "V5": [232, 545], "V6": [304, 549], "V7": [160, 643], "V8": [187, 688], "V9": [318, 752], "V10": [313, 818], "V11": [348, 831], "V12": [353, 868], "V13": [376, 766], "V14": [422, 710], "V15": [499, 721], "V16": [382, 546], "V17": [414, 577], "V18": [497, 478], "V19": [505, 554], "V20": [508, 624], "V21": [271, 644], "V22": [460, 881], "V23": [308, 1146], "V24": [792, 1133], "V25": [852, 1178], "V26": [980, 1063], "V27": [1066, 1126], "V28": [483, 314], "V29": [477, 242], "V30": [482, 184], "V31": [547, 261], "V32": [548, 233], "V33": [582, 273], "V34": [477, 29], "V35": [652, 306], "V36": [680, 319], "V37": [640, 469], "V38": [555, 602], "V39": [766, 715], "V40": [907, 439], "V41": [655, 166], "V42": [615, 37], "V43": [686, 859], "V44": [710, 818], "V45": [575, 749], "V46": [559, 778], "V47": [861, 941], "V48": [950, 817], "V49": [1067, 558], "V50": [996, 497], "V51": [857, 767]};
+const EDGES = [[1, 2], [2, 3], [2, 7], [3, 5], [3, 4], [4, 6], [5, 6], [6, 16], [16, 17], [7, 8], [7, 21], [21, 17], [8, 9], [9, 10], [10, 11], [11, 12], [11, 13], [13, 14], [14, 15], [17, 19], [15, 22], [22, 23], [22, 24], [32, 31], [29, 31], [24, 25], [24, 26], [26, 27], [17, 18], [17, 20], [18, 19], [19, 20], [20, 15], [18, 28], [28, 29], [29, 30], [30, 34], [30, 32], [28, 31], [31, 33], [33, 35], [35, 36], [35, 37], [37, 38], [36, 40], [36, 41], [41, 42], [40, 50], [40, 39], [50, 49], [50, 51], [49, 48], [48, 47], [48, 51], [51, 39], [38, 39], [39, 44], [44, 43], [44, 45], [45, 46], [46, 43], [43, 47]];
+
+/* ---- graph + search, ported from graph_city.py / app.py so it runs with no server ---- */
+const ADJ = {}, EDGE_LIST = [];
+Object.keys(COORDS).forEach(k => ADJ[k] = []);
+EDGES.forEach(([a, b]) => {
+  const A = "V" + a, B = "V" + b;
+  if (!ADJ[A].includes(B)) ADJ[A].push(B);
+  if (!ADJ[B].includes(A)) ADJ[B].push(A);
+  EDGE_LIST.push([A, B]);
+});
+const GRAPH = {
+  vertices: Object.entries(COORDS).map(([id, [x, y]]) => ({id, x, y})),
+  edges: EDGE_LIST
+};
+const dist = (a, b) => Math.hypot(COORDS[a][0] - COORDS[b][0], COORDS[a][1] - COORDS[b][1]);
+
+function search(start, goal, algo) {
+  const priority = (g, v) => algo === "ucs" ? g : algo === "greedy" ? dist(v, goal) : g + dist(v, goal);
+  let counter = 0;
+  const frontier = [[priority(0, start), counter, 0, start]];
+  const bestG = {[start]: 0}, parent = {[start]: null}, closed = new Set(), explored = [];
+  while (frontier.length) {
+    let mi = 0;                                           // pop smallest (priority, counter)
+    for (let i = 1; i < frontier.length; i++)
+      if (frontier[i][0] < frontier[mi][0] || (frontier[i][0] === frontier[mi][0] && frontier[i][1] < frontier[mi][1])) mi = i;
+    const [, , g, name] = frontier.splice(mi, 1)[0];
+    if (closed.has(name)) continue;
+    closed.add(name); explored.push(name);
+    if (name === goal) break;
+    for (const nb of ADJ[name]) {
+      if (closed.has(nb)) continue;
+      const newG = g + dist(name, nb);
+      if (algo === "greedy") { if (nb in parent) continue; }
+      else if (newG >= (bestG[nb] ?? Infinity)) continue;
+      bestG[nb] = newG; parent[nb] = name; counter++;
+      frontier.push([priority(newG, nb), counter, newG, nb]);
+    }
+  }
+  if (!closed.has(goal)) return {found: false, explored};
+  const path = []; let cur = goal;
+  while (cur !== null) { path.push(cur); cur = parent[cur]; }
+  path.reverse();
+  return {found: true, path, explored, cost: Math.round(bestG[goal] * 10) / 10, expanded: explored.length};
+}
+
 const $ = id => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
 const NAMES = {ucs: "UCS", greedy: "Greedy", astar: "A*"};
@@ -214,7 +261,7 @@ function toast(msg, o = {}) {
 /* ------------------------------ setup ------------------------------ */
 async function init() {
   setGo(); $("hint").textContent = HINTS[algo];
-  try { G = await (await fetch("/api/graph")).json(); }
+  try { G = GRAPH; }
   catch (e) { toast("Can't reach the server. Is app.py running?", {err: true, sticky: true}); return; }
   G.vertices.forEach(v => V[v.id] = v);
   const img = $("map");
@@ -408,9 +455,7 @@ async function run() {
 
   let r;
   try {
-    const res = await fetch(`/api/route?start=${s}&goal=${g}&algo=${algo}`);
-    if (!res.ok) throw 0;
-    r = await res.json();
+    r = search(s, g, algo);
   } catch (e) {
     if (my === runId) { running = false; setGo(); toast("Couldn't reach the server.", {err: true}); }
     return;

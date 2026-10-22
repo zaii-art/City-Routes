@@ -1,6 +1,6 @@
-const VERSION = "city-routes-v1";
-const SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
-const CACHEABLE = ["/", "/map", "/api/graph", "/manifest.webmanifest"];
+const VERSION = "city-routes-v2";
+const SHELL = ["/", "/index.html", "/city_map.jpg", "/manifest.webmanifest",
+               "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -14,22 +14,14 @@ self.addEventListener("activate", e => {
   );
 });
 
+// cache-first, refresh in the background -> whole app works offline
 self.addEventListener("fetch", e => {
   const req = e.request;
-  if (req.method !== "GET") return;
-  const url = new URL(req.url);
-  if (url.origin !== location.origin) return;
-  if (url.pathname.startsWith("/api/route")) return;           // routing always needs the server
-
-  const isStatic = CACHEABLE.includes(url.pathname) || /\.(png|svg|webmanifest)$/.test(url.pathname);
-  if (!isStatic) return;
-
-  // stale-while-revalidate: instant load, quietly refresh in background
+  if (req.method !== "GET" || new URL(req.url).origin !== location.origin) return;
   e.respondWith(
     caches.open(VERSION).then(async cache => {
-      const cached = await cache.match(req, { ignoreSearch: true });
-      const fresh = fetch(req).then(res => { if (res.ok) cache.put(req, res.clone()); return res; })
-                              .catch(() => cached);
+      const cached = await cache.match(req, {ignoreSearch: true});
+      const fresh = fetch(req).then(res => { if (res.ok) cache.put(req, res.clone()); return res; }).catch(() => cached);
       return cached || fresh;
     })
   );
