@@ -1,4 +1,4 @@
-const VERSION = "city-routes-v2";
+const VERSION = "city-routes-v3";
 const SHELL = ["/", "/index.html", "/city_map.jpg", "/manifest.webmanifest",
                "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png"];
 
